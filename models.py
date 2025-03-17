@@ -60,9 +60,6 @@ class TextGuidedHarmonizationModel(nn.Module):
         hat_h, _ = self.lstm(hat_h)  # Shape remains (batch, seq_len, hidden_dim)
 
         # encoder_outputs = BaseModelOutput(last_hidden_state=hat_h)
-
-        print('hat_h: ', hat_h.shape)
-        print('labels: ', labels.shape)
         
         # Decode harmony using BART decoder with fused hidden states
         decoder_outputs = self.bart(

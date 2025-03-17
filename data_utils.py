@@ -10,16 +10,16 @@ from transformers import DataCollatorForSeq2Seq
 import mir_eval
 from copy import deepcopy
 
-def shift_right(input_ids, pad_token_id, decoder_start_token_id):
+def shift_right(input_ids_tensor, pad_token_id, decoder_start_token_id):
     """Shifts input_ids to the right for decoder input."""
-    input_ids_tensor = torch.LongTensor(input_ids)
+    # input_ids_tensor = torch.LongTensor(input_ids)
     shifted = input_ids_tensor.new_zeros(input_ids_tensor.shape)  # Create new tensor of same shape
     shifted[1:] = input_ids_tensor[:-1]  # Shift everything right
     shifted[0] = decoder_start_token_id  # Insert start token at beginning
     
     # Replace padding tokens with pad_token_id (avoid padding affecting loss)
-    shifted[input_ids == pad_token_id] = pad_token_id
-    return shifted.tolist()
+    shifted[input_ids_tensor == pad_token_id] = pad_token_id
+    return shifted
 # end shift_right
 
 class SeparatedMelHarmTextDataset(Dataset):
@@ -71,7 +71,7 @@ class SeparatedMelHarmTextDataset(Dataset):
                 encoded['input_tokens'][start_harmony_position:],
                 self.description_mode
             )
-            labels = self.merged_tokenizer.convert_tokens_to_ids(label_tokens)
+            labels = torch.tensor(self.merged_tokenizer.convert_tokens_to_ids(label_tokens))
         else:
             txt = self.merged_tokenizer.make_description_of_tokens_list_at_random_bar(
                 encoded['input_tokens'][start_harmony_position:],
@@ -79,7 +79,7 @@ class SeparatedMelHarmTextDataset(Dataset):
             )
             labels = torch.tensor(encoded['input_ids']).clone()
             labels = labels[start_harmony_position:]  # Ignore question tokens and <h> in loss computation
-            # harmony_input_ids should not include -100
+        # harmony_input_ids should not include -100
         harmony_input_ids = shift_right(
             labels,
             self.merged_tokenizer.pad_token_id,
@@ -100,11 +100,13 @@ class SeparatedMelHarmTextDataset(Dataset):
 class MelHarmTextCollatorForSeq2Seq(DataCollatorForSeq2Seq):
     def __init__(self, tokenizer, model, padding=True):
         super().__init__(tokenizer=tokenizer, model=model, padding=padding)
+        self.tokenizer = tokenizer
     # end init
 
     def __call__(self, features):
         standard_features = [
-            {k: v for k, v in f.items() if k in ["input_ids", "attention_mask", "harmony_input_ids", "labels"]}
+            # {k: v for k, v in f.items() if k in ["input_ids", "attention_mask", "harmony_input_ids", "labels"]}
+            {k: v for k, v in f.items() if k in ["input_ids", "attention_mask", "labels"]}
             for f in features
         ]
         # Process main tokenizer fields
@@ -113,6 +115,18 @@ class MelHarmTextCollatorForSeq2Seq(DataCollatorForSeq2Seq):
         # Extract raw text from dataset
         txt_strings = [f["txt"] for f in features]
         batch['txt'] = txt_strings
+
+        # Extract and pad harmony_input_ids separately
+        harmony_inputs = [f["harmony_input_ids"] for f in features]
+
+        # Manually pad harmony_input_ids to match labels
+        harmony_padded = torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(h) for h in harmony_inputs], 
+            batch_first=True, 
+            padding_value=self.tokenizer.pad_token_id
+        )
+
+        batch["harmony_input_ids"] = harmony_padded
 
         return batch
     # end call
