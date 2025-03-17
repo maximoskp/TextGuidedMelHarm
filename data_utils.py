@@ -12,18 +12,19 @@ from copy import deepcopy
 
 def shift_right(input_ids, pad_token_id, decoder_start_token_id):
     """Shifts input_ids to the right for decoder input."""
-    shifted = input_ids.new_zeros(input_ids.shape)  # Create new tensor of same shape
-    shifted[1:] = input_ids[:-1]  # Shift everything right
+    input_ids_tensor = torch.LongTensor(input_ids)
+    shifted = input_ids_tensor.new_zeros(input_ids_tensor.shape)  # Create new tensor of same shape
+    shifted[1:] = input_ids_tensor[:-1]  # Shift everything right
     shifted[0] = decoder_start_token_id  # Insert start token at beginning
     
     # Replace padding tokens with pad_token_id (avoid padding affecting loss)
     shifted[input_ids == pad_token_id] = pad_token_id
-    return shifted
+    return shifted.tolist()
 # end shift_right
 
 class SeparatedMelHarmTextDataset(Dataset):
     def __init__(self, root_dir, merged_tokenizer, max_length=512, pad_to_max_length=True, \
-                return_attention_mask=False, num_bars=8, description_mode='specific_chord'):
+                return_attention_mask=False, num_bars=8, description_mode='specific_chord', alteration=False):
         # root_dir: the directory that includes subdirectories with mlx or xml files
         # Walk through all subdirectories and files
         # description_modes: 'chord_root', 'specific_chord' (root+type), 'pitch_class'
@@ -39,6 +40,7 @@ class SeparatedMelHarmTextDataset(Dataset):
         self.num_bars = num_bars
         self.return_attention_mask = return_attention_mask
         self.description_mode = description_mode
+        self.alteration = alteration
     # end init
 
     def __len__(self):
@@ -60,12 +62,24 @@ class SeparatedMelHarmTextDataset(Dataset):
             encoded = self.merged_tokenizer.encode(data_file, max_length=self.max_length,\
                             pad_to_max_length=self.pad_to_max_length, num_bars=self.num_bars)
         # separate melody from harmony
-        labels = torch.tensor(encoded['input_ids']).clone()
         start_harmony_position = np.where( np.array(encoded['input_ids']) == self.merged_tokenizer.vocab[self.merged_tokenizer.harmony_tokenizer.start_harmony_token] )[0][0]
         input_ids = torch.tensor(encoded['input_ids'][:start_harmony_position], dtype=torch.long)
         attention_mask = torch.tensor(encoded['attention_mask'][:start_harmony_position], dtype=torch.long)
-        labels = labels[start_harmony_position:]  # Ignore question tokens and <h> in loss computation
-        # harmony_input_ids should not include -100
+        # make description of specific (e.g., the third) bar
+        if self.alteration:
+            txt, label_tokens = self.merged_tokenizer.change_and_describe_tokens_list_at_random_bar(
+                encoded['input_tokens'][start_harmony_position:],
+                self.description_mode
+            )
+            labels = self.merged_tokenizer.convert_tokens_to_ids(label_tokens)
+        else:
+            txt = self.merged_tokenizer.make_description_of_tokens_list_at_random_bar(
+                encoded['input_tokens'][start_harmony_position:],
+                self.description_mode
+            )
+            labels = torch.tensor(encoded['input_ids']).clone()
+            labels = labels[start_harmony_position:]  # Ignore question tokens and <h> in loss computation
+            # harmony_input_ids should not include -100
         harmony_input_ids = shift_right(
             labels,
             self.merged_tokenizer.pad_token_id,
@@ -73,11 +87,6 @@ class SeparatedMelHarmTextDataset(Dataset):
         )
         # do -100 now
         labels[ labels == self.merged_tokenizer.pad_token_id ] = -100
-        # make description of specific (e.g., the third) bar
-        txt = self.merged_tokenizer.make_description_of_tokens_list_at_random_bar(
-            encoded['input_tokens'][start_harmony_position:],
-            self.description_mode
-        )
         return {
             'input_ids': input_ids,
             'attention_mask': attention_mask,

@@ -75,6 +75,9 @@ class TextGuidedHarmonizationModel(nn.Module):
             return_dict=True
         )
         
-        return decoder_outputs.loss, decoder_outputs.logits
+        return {
+            'loss':decoder_outputs.loss,
+            'logits': decoder_outputs.logits
+        }
     # end forward
 # end class TextGuidedHarmonizationModel
