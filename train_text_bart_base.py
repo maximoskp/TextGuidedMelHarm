@@ -79,9 +79,9 @@ def main():
     tokenizer = MergedMelHarmTokenizer(melody_tokenizer, harmony_tokenizer)
 
     train_dataset = SeparatedMelHarmTextDataset(train_dir, tokenizer, max_length=512, num_bars=64, \
-        description_mode=description_mode)
+        description_mode=description_mode, alteration=True)
     test_dataset = SeparatedMelHarmTextDataset(val_dir, tokenizer, max_length=512, num_bars=64, \
-        description_mode=description_mode)
+        description_mode=description_mode, alteration=True)
 
     if device_name == 'cpu':
         device = torch.device('cpu')
