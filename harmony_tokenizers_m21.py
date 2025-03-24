@@ -699,7 +699,7 @@ class ChordSymbolTokenizer(HarmonyTokenizerBase):
 
             for root in chromatic_roots:
                 for quality in qualities:
-                        chord_token = f'{root}:{quality}'
+                        chord_token = root + (len(quality) > 0)*':' + quality
                         #print(chord_token)
                         self.vocab[chord_token] = len(self.vocab)
             self.update_ids_to_tokens()
